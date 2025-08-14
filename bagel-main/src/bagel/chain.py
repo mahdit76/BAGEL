@@ -13,11 +13,11 @@ MIT License
 Copyright (c) 2025 Jakub Lála, Ayham Saffar, Stefano Angioletti-Uberti
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Self, List
 import pathlib as pl
 from biotite.structure.io.pdb import PDBFile
-from biotite.structure import get_residues
+from biotite.structure import get_residues, AtomArray
 from .constants import aa_dict
 
 
@@ -64,6 +64,9 @@ class Chain:
     """
 
     residues: List[Residue]
+    # atom_array is no longer a dataclass field
+
+    model_config = {"arbitrary_types_allowed": True}
 
     def __post_init__(self) -> None:
         """Used for sanity checks."""
@@ -117,10 +120,14 @@ class Chain:
         structure = PDBFile.read(path).get_structure(model=1)  # assumes only 1 protein in pdb
         assert chain_id in structure.chain_id, f'{chain_id} chain id not found in {file_path} pdb file'
 
-        _, residue_names = get_residues(structure[structure.chain_id == chain_id])
+        chain_mask = (structure.chain_id == chain_id)
+        chain_atom_array = structure[chain_mask]
+        _, residue_names = get_residues(chain_atom_array)
         residue_names = [residue_name[0] for residue_name in residue_names]  # converts 3 letter residue names to 1
         residues = [Residue(residue_name, chain_id, index=i) for i, residue_name in enumerate(residue_names)]
-        return cls(residues)
+        chain = cls(residues)
+        chain.atom_array = chain_atom_array  # set as normal attribute, not dataclass field
+        return chain
 
     @classmethod
     def from_cif(cls, cif_data: str) -> Self:
@@ -159,3 +166,13 @@ class Chain:
         mutated_residue = self.residues[index]
         mutated_residue.name = amino_acid
         self.residues[index] = mutated_residue
+
+    def to_atom_array(self):
+        """
+        Return the AtomArray for this chain, if available.
+        """
+        if hasattr(self, "atom_array") and self.atom_array is not None:
+            return self.atom_array
+        raise NotImplementedError(
+            "Chain.to_atom_array() is not implemented for chains without atom_array. Use Chain.from_pdb to create chains with coordinates."
+        )
